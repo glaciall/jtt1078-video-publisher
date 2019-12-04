@@ -3,3 +3,5 @@ jtt1078
 *.bin
 *.hex
 *.mp4
+.idea
+*.iml
