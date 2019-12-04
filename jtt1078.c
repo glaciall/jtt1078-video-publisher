@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <time.h>
+#include <errno.h>
 
 #define SUCCESS 0
 
@@ -21,6 +22,14 @@ void log(char *msg)
 unsigned char buffer[4096];
 unsigned int buffer_offset = 0;
 unsigned int buffer_size = 0;
+unsigned char *ENCODING[] = {
+	"reserved", "G.721", "G.722", "G.723", "G.728", "G.729",
+	"G.711A", "G.711U", "G.726", "G.729A", "DVI4_3",
+	"DVI4_4", "DVI4_8K", "DVI4_16K", "LPC", "S16BE_STEREO",
+	"S16BE_MONO", "MPEGAUDIO", "LPCM", "AAC", "WMA9STD", "HEAAC",
+	"PCM_VOICE", "PCM_AUDIO", "AACLC", "MP3", "ADPCMA", "MP4AUDIO", "AMR"
+};
+FILE *output;
 
 void dump(unsigned char *data, int len)
 {
@@ -37,9 +46,19 @@ void dump(unsigned char *data, int len)
 
 int main(int argc, char **argv)
 {
-	unsigned int i, len, lOffset, dType, pLen, bodyLength;
+	int audioEncodingPrinted = 0;
+	int videoEncodingPrinted = 0;
+	unsigned int i, len, lOffset, dType, pLen, bodyLength, pt;
 	unsigned char block[1024];
 	unsigned char msg[128];
+
+	output = popen("ffmpeg -re -i - -c copy -f flv rtmp://localhost/live/fuck", "w");
+	if (output == NULL)
+	{
+		sprintf(msg, "exec ffmpeg failed: %s", strerror(errno));
+		log(msg);
+		return 1;
+	}
 
 	while (!feof(stdin))
 	{
@@ -78,11 +97,46 @@ int main(int argc, char **argv)
 			// log(msg);
 
 			if (buffer_size < pLen) break;
+			pt = buffer[5] & 0x7f;
 
 			if (dType == 0x00 || dType == 0x01 || dType == 0x02)
 			{
-				for (i = 0; i < bodyLength; i++) fputc(buffer[i + lOffset + 2], stdout);
-				fflush(stdout);
+				if (videoEncodingPrinted == 0)
+				{
+					switch (pt)
+					{
+						case 98 : strcpy(msg, "vidio encoding: H.264"); break;
+						case 99 : strcpy(msg, "video encoding: H.265"); break;
+						case 100 : strcpy(msg, "video encoding: AVS"); break;
+						case 101 : strcpy(msg, "video encoding: SVAC"); break;
+						default : strcpy(msg, "video encoding: unknown");
+					}
+					log(msg);
+					videoEncodingPrinted = 1;
+				}
+				for (i = 0; i < bodyLength; i++)
+				{
+					fputc(buffer[i + lOffset + 2], output);
+				}
+				fflush(output);
+			}
+			else if (dType == 0x03)
+			{
+				if (audioEncodingPrinted == 0)
+				{
+					if (pt > 28) strcpy(msg, "audio encoding: unknown");
+					else sprintf(msg, "audio encoding: %s", *(ENCODING + pt));
+					log(msg);
+					// dump(buffer, 64);
+					audioEncodingPrinted = 1;
+				}
+				/*
+				for (i = 0; i < bodyLength; i++)
+				{
+					fputc(buffer[i + lOffset + 2], output);
+				}
+				fflush(output);
+				*/
 			}
 
 			for (i = 0, len = buffer_size - pLen; i < len; i++)
@@ -101,6 +155,10 @@ int main(int argc, char **argv)
 			// dump(buffer, 64);
 		}
 	}
+
+	fclose(output);
+	fflush(stdout);
+	fclose(stdout);
 
 	return 0;
 }
