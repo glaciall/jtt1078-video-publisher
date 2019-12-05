@@ -6,6 +6,7 @@
 struct node_t
 {
     int index;
+    int count;
     struct node_t *next;
     struct node_t *last;
 };
@@ -18,6 +19,7 @@ int node_remove_first(struct node_t *head, struct node_t **node)
     head->next = (*node)->next;
     if ((*node)->next == NULL) head->last = NULL;
     (*node)->next = NULL;
+    head->count -= 1;
     return 0;
 }
 
@@ -31,12 +33,13 @@ int node_add_last(struct node_t *head, int val)
     if (head->last != NULL) head->last->next = node;
     else head->next = node;
     head->last = node;
+    head->count += 1;
 }
 
 int main(void)
 {
     int i = 0;
-    struct node_t head = { index : 0, next : NULL, last : NULL };
+    struct node_t head = { count : 0, index : 0, next : NULL, last : NULL };
     struct node_t *last = NULL;
     struct node_t *node = NULL;
     head.last = &head;
@@ -46,10 +49,14 @@ int main(void)
         node_add_last(&head, i + 1);
     }
 
+    printf("count: %d\n", head.count);
+
     // 使用方法加几个
     node_add_last(&head, 77);
     node_add_last(&head, 88);
     node_add_last(&head, 99);
+
+    printf("count: %d\n", head.count);
 
     // 遍历整个链表
     last = &head;
@@ -74,6 +81,8 @@ int main(void)
     }
 
     printf("------------------------------\n");
+
+    printf("count: %d\n", head.count);
 
     last = &head;
     for (; last != NULL; last = last->next)
