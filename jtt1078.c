@@ -5,21 +5,7 @@
 #include <errno.h>
 #include <math.h>
 #include <stdlib.h>
-
-#define SUCCESS 0
-
-void log(char *msg)
-{
-	time_t now;
-	struct tm *timeinfo;
-	char str[64];
-
-	time(&now);
-	timeinfo = localtime(&now);
-	strftime(str, sizeof(str), "%Y-%m-%d %H:%M:%S", timeinfo);
-
-	printf("[jtt1078] %s %s\n", str, msg);
-}
+#include "util/common.h"
 
 unsigned char buffer[4096];
 unsigned int buffer_offset = 0;
@@ -33,19 +19,6 @@ unsigned char *ENCODING[] = {
 };
 FILE *output;
 
-void dump(unsigned char *data, int len)
-{
-	int i;
-	printf("-------------------------------\n");
-	for (i = 0; i < len; i++)
-	{
-		printf("%02x ", *(data++));
-		if (i % 4 == 3) printf("  ");
-		if (i % 16 == 15) printf("\n");
-	}
-	printf("-------------------------------\n");
-}
-
 int main(int argc, char **argv)
 {
 	int audioEncodingPrinted = 0;
@@ -58,7 +31,7 @@ int main(int argc, char **argv)
 	if (output == NULL)
 	{
 		sprintf(msg, "exec ffmpeg failed: %s", strerror(errno));
-		log(msg);
+		logger(msg);
 		return 1;
 	}
 
@@ -83,8 +56,8 @@ int main(int argc, char **argv)
 			if (buffer[0] == 0x30 && buffer[1] == 0x31 && buffer[2] == 0x63 && buffer[3] == 0x64) ;
 			else
 			{
-				// dump(buffer, 64);
-				// log("invalid header bytes");
+				// bytes_dump(buffer, 64);
+				// logger("invalid header bytes");
 				return 1;
 			}
 
@@ -96,7 +69,7 @@ int main(int argc, char **argv)
 			pLen = bodyLength + lOffset + 2;
 		
 			// sprintf(msg, "Type: %02x, Length: %04x, pLen: %d, Buffer: %d", dType, bodyLength, pLen, buffer_size);
-			// log(msg);
+			// logger(msg);
 
 			if (buffer_size < pLen) break;
 			pt = buffer[5] & 0x7f;
@@ -113,7 +86,7 @@ int main(int argc, char **argv)
 						case 101 : strcpy(msg, "video encoding: SVAC"); break;
 						default : strcpy(msg, "video encoding: unknown");
 					}
-					log(msg);
+					logger(msg);
 					videoEncodingPrinted = 1;
 				}
 				for (i = 0; i < bodyLength; i++)
@@ -128,8 +101,8 @@ int main(int argc, char **argv)
 				{
 					if (pt > 28) strcpy(msg, "audio encoding: unknown");
 					else sprintf(msg, "audio encoding: %s", *(ENCODING + pt));
-					log(msg);
-					// dump(buffer, 64);
+					logger(msg);
+					// bytes_dump(buffer, 64);
 					audioEncodingPrinted = 1;
 				}
 				/*
@@ -152,9 +125,9 @@ int main(int argc, char **argv)
 			buffer_offset -= pLen;
 
 			// sprintf(msg, "buffer size: %d", buffer_size);
-			// log(msg);
+			// logger(msg);
 
-			// dump(buffer, 64);
+			// bytes_dump(buffer, 64);
 		}
 	}
 
