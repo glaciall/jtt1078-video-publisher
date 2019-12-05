@@ -4,7 +4,8 @@
 
 struct node_t
 {
-    int index;
+    char data[1024];
+    int dataLength;
     int count;
     struct node_t *next;
     struct node_t *last;
@@ -22,13 +23,15 @@ int node_remove_first(struct node_t *head, struct node_t **node)
     return 0;
 }
 
-int node_add_last(struct node_t *head, int val)
+int node_add_last(struct node_t *head, char *val, int dataLength)
 {
     struct node_t *node = (struct node_t *)malloc(sizeof(struct node_t));
-    node->index = val;
+    memset(node->data, 0, 1024);
+    int i = 0;
+    for (; i < dataLength; i++) node->data[i] = *(val++);
+    node->dataLength = dataLength;
     node->next = NULL;
 
-    // 记录尾节点的下一个节点
     if (head->last != NULL) head->last->next = node;
     else head->next = node;
     head->last = node;

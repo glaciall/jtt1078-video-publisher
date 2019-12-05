@@ -5,6 +5,8 @@
 #include <errno.h>
 #include <math.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include "util/common.h"
 
 unsigned char buffer[4096];
@@ -17,7 +19,57 @@ unsigned char *ENCODING[] = {
 	"S16BE_MONO", "MPEGAUDIO", "LPCM", "AAC", "WMA9STD", "HEAAC",
 	"PCM_VOICE", "PCM_AUDIO", "AACLC", "MP3", "ADPCMA", "MP4AUDIO", "AMR"
 };
-FILE *output;
+
+struct publisher
+{
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    node_t llist;
+};
+
+FILE *input, *videoFifoFile, *audioFifoFile;
+
+void exit_no_arg(char *msg)
+{
+    logger(msg);
+    printf("usage: jtt1078 <--fifo-path=> <--video-encoding=h264> <--audio-encoding=> <--rtmp-url=rtmp://server/app/stream>");
+}
+
+void *video_publish_func(void *arg)
+{
+    while (1)
+    {
+        // lock and wait
+
+        // write to fifo
+    }
+    return NULL;
+}
+
+void *audio_publish_func(void *arg)
+{
+    while (1)
+    {
+        // lock and wait
+
+        // audio transcode...
+
+        // write to fifo
+    }
+
+    return NULL;
+}
+
+// distribute audio/video segment to separate threads
+void distribute(char *data, int len, struct publisher publisher)
+{
+    char *temp = (char *)malloc(len);
+    array_copy(data, 0, temp, 0, len);
+    pthread_mutex_lock(&publisher.mutex);
+    node_add_last(publisher.llist, data, len);
+    pthread_mutex_unlock(&publisher.mutex);
+    pthread_cond_signal(&publisher.cond);
+}
 
 int main(int argc, char **argv)
 {
@@ -26,14 +78,42 @@ int main(int argc, char **argv)
 	unsigned int i, len, lOffset, dType, pLen, bodyLength, pt;
 	unsigned char block[1024];
 	unsigned char msg[128];
+	unsigned char fifoPath[128];
+	unsigned char filePath[140];
+	unsigned char videoEncoding[] = "h264";
+	unsigned char rtmpUrl[128];
+	unsigned char command[512];
 
-	output = popen("ffmpeg -re -i - -c copy -f flv rtmp://localhost/live/fuck", "w");
-	if (output == NULL)
+    memset(fifoPath, 0, 128);
+    memset(rtmpUrl, 0, 128);
+
+    if (get_opt(argc, argv, "--fifo-path=", fifoPath, 127) == 0) return exit_no_arg("no argument for fifo path"), 1;
+    if (get_opt(argc, argv, "--rtmp-url=", rtmpUrl, 127) == 0) return exit_not_arg("no argument for rtmp url"), 1;
+
+    sprintf(command, "ffmpeg -f %s -i %s.video -f alaw -i %s.audio -c copy -f flv %s", videoEncoding, fifoPath, fifoPath, rtmpUrl);
+	input = popen(command, "r");
+	if (input == NULL)
 	{
 		sprintf(msg, "exec ffmpeg failed: %s", strerror(errno));
 		logger(msg);
 		return 1;
 	}
+
+    // create fifo file
+    sprintf(filePath, "%s.video", fifoPath);
+    remove(filePath);
+    if (!mkfifo(filePath, 0666)) return logger("create fifo for video stream failed"), 1;
+    videoFifoFile = open(filePath, O_WRONLY | O_NONBLOCK);
+    if (videoFifoFile != 0) return logger("cannot open fifo for video stream"), 1;
+
+    sprintf(filePath, "%s.audio", fifoPath);
+    remove(filePath);
+    if (!mkfifo(filePath, 0666)) return logger("create fifo for audio stream failed"), 1;
+    audioFifoFile = open(filePath, O_WRONLY | O_NONBLOCK);
+    if (audioFifoFile != 0) return logger("cannot open fifo for audio stream"), 1;
+
+    // create threads
+
 
 	while (!feof(stdin))
 	{
@@ -89,11 +169,13 @@ int main(int argc, char **argv)
 					logger(msg);
 					videoEncodingPrinted = 1;
 				}
+				/*
 				for (i = 0; i < bodyLength; i++)
 				{
 					fputc(buffer[i + lOffset + 2], output);
 				}
 				fflush(output);
+				*/
 			}
 			else if (dType == 0x03)
 			{
@@ -117,21 +199,14 @@ int main(int argc, char **argv)
 			for (i = 0, len = buffer_size - pLen; i < len; i++)
 			{
 				buffer[i] = buffer[pLen + i];
-				// printf("%02x ", buffer[i]);
-				// if (i % 16 == 15) printf("\n");
 			}
 		
 			buffer_size -= pLen;
 			buffer_offset -= pLen;
-
-			// sprintf(msg, "buffer size: %d", buffer_size);
-			// logger(msg);
-
-			// bytes_dump(buffer, 64);
 		}
 	}
 
-	fclose(output);
+	pclose(input);
 	fflush(stdout);
 	fclose(stdout);
 
