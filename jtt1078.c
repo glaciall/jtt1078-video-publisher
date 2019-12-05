@@ -156,7 +156,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	fclose(output);
+	pclose(output);
 	fflush(stdout);
 	fclose(stdout);
 
