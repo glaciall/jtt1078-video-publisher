@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <time.h>
 #include <errno.h>
+#include <math.h>
+#include <stdlib.h>
 
 #define SUCCESS 0
 
@@ -156,7 +158,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	pclose(output);
+	fclose(output);
 	fflush(stdout);
 	fclose(stdout);
 
