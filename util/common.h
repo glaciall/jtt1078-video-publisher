@@ -70,3 +70,16 @@ int str_starts_with(char *a, char *b)
     }
     return 1;
 }
+
+/**
+ * copy {count} bytes from src to {dest} at {dest_start}
+ */
+int array_copy(char *src, int src_pos, char *dest, int dest_start, int count)
+{
+    int i = 0;
+    for (; i < count; i++)
+    {
+        *(dest + dest_start + i) = *(src + src_pos + i);
+    }
+    return count;
+}
