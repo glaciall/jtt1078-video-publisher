@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/time.h>
 
 #define SUCCESS 0
 
@@ -31,8 +32,16 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 void *test(void *arg)
 {
 	log("thread started...");
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	ts.tv_sec += 1;
 	pthread_mutex_lock(&mutex);
-	while (x == 0) pthread_cond_wait(&cond, &mutex);
+	while (x == 0)
+	{
+		pthread_cond_timedwait(&cond, &mutex, &ts);
+		log("lock timedout");
+		ts.tv_sec += 1;
+	}
 	pthread_mutex_unlock(&mutex);
 	log("unlocked...");
 	return NULL;
@@ -44,7 +53,7 @@ int main(int argc, char **argv)
 	pthread_create(thread, NULL, test, NULL);
 	log("thread created...");
 
-	sleep(2);
+	sleep(5);
 
 	log("notify...");
 	pthread_mutex_lock(&mutex);
