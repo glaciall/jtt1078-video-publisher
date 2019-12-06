@@ -6,3 +6,5 @@ jtt1078
 .idea
 *.iml
 *.bin
+*.audio
+*.video

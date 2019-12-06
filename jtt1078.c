@@ -5,9 +5,13 @@
 #include <errno.h>
 #include <math.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include "util/common.h"
+#include "util/linkedlist.c"
 
 unsigned char buffer[4096];
 unsigned int buffer_offset = 0;
@@ -24,37 +28,81 @@ struct publisher
 {
     pthread_mutex_t mutex;
     pthread_cond_t cond;
-    node_t llist;
-};
+    struct node_t llist;
+} videoPublisher, audioPublisher;
 
 FILE *input, *videoFifoFile, *audioFifoFile;
 
-void exit_no_arg(char *msg)
+int exit_no_arg(char *msg)
 {
     logger(msg);
-    printf("usage: jtt1078 <--fifo-path=> <--video-encoding=h264> <--audio-encoding=> <--rtmp-url=rtmp://server/app/stream>");
+    fprintf("usage: jtt1078 <--fifo-path=> <--video-encoding=h264> <--audio-encoding=> <--rtmp-url=rtmp://server/app/stream>\n", stderr);
+    return 0;
 }
 
 void *video_publish_func(void *arg)
 {
+    int ret;
+    struct timespec ts;
+    struct node_t *node;
+
     while (1)
     {
-        // lock and wait
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 1;
 
-        // write to fifo
+        // lock and wait
+        pthread_mutex_lock(&videoPublisher.mutex);
+        while (videoPublisher.llist.count == 0)
+        {
+            // TODO: check child process running state...
+            ret = pthread_cond_timedwait(&videoPublisher.cond, &videoPublisher.mutex, &ts);
+            if (ret == 0)
+            {
+                node_remove_first(&videoPublisher.llist, &node);
+                break;
+            }
+            ts.tv_sec += 1;
+            logger("video publisher timedout");
+        }
+        pthread_mutex_unlock(&videoPublisher.mutex);
+
+        // do something with node
+        printf("received: %d bytes for video stream...\n", node->dataLength);
     }
     return NULL;
 }
 
 void *audio_publish_func(void *arg)
 {
+    int ret;
+    struct timespec ts;
+    struct node_t *node;
     while (1)
     {
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 1;
+
         // lock and wait
+        pthread_mutex_lock(&audioPublisher.mutex);
+        while (audioPublisher.llist.count == 0)
+        {
+            // TODO: check child process running state...
+            ret = pthread_cond_timedwait(&audioPublisher.cond, &audioPublisher.mutex, &ts);
+            if (ret == 0)
+            {
+                node_remove_first(&audioPublisher.llist, &node);
+                break;
+            }
+            ts.tv_sec += 1;
+            logger("audio publisher timedout");
+        }
+        pthread_mutex_unlock(&audioPublisher.mutex);
 
         // audio transcode...
 
         // write to fifo
+        printf("received: %d bytes for audio stream...\n", node->dataLength);
     }
 
     return NULL;
@@ -66,7 +114,7 @@ void distribute(char *data, int len, struct publisher publisher)
     char *temp = (char *)malloc(len);
     array_copy(data, 0, temp, 0, len);
     pthread_mutex_lock(&publisher.mutex);
-    node_add_last(publisher.llist, data, len);
+    node_add_last(&publisher.llist, data, len);
     pthread_mutex_unlock(&publisher.mutex);
     pthread_cond_signal(&publisher.cond);
 }
@@ -88,7 +136,15 @@ int main(int argc, char **argv)
     memset(rtmpUrl, 0, 128);
 
     if (get_opt(argc, argv, "--fifo-path=", fifoPath, 127) == 0) return exit_no_arg("no argument for fifo path"), 1;
-    if (get_opt(argc, argv, "--rtmp-url=", rtmpUrl, 127) == 0) return exit_not_arg("no argument for rtmp url"), 1;
+    if (get_opt(argc, argv, "--rtmp-url=", rtmpUrl, 127) == 0) return exit_no_arg("no argument for rtmp url"), 1;
+
+    sprintf(filePath, "%s.video", fifoPath);
+    remove(filePath);
+    if (mkfifo(filePath, 0666) != 0) return logger("create fifo for video stream failed"), 1;
+
+    sprintf(filePath, "%s.audio", fifoPath);
+    remove(filePath);
+    if (mkfifo(filePath, 0666) != 0) return logger("create fifo for audio stream failed"), 1;
 
     sprintf(command, "ffmpeg -f %s -i %s.video -f alaw -i %s.audio -c copy -f flv %s", videoEncoding, fifoPath, fifoPath, rtmpUrl);
 	input = popen(command, "r");
@@ -99,21 +155,19 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-    // create fifo file
-    sprintf(filePath, "%s.video", fifoPath);
-    remove(filePath);
-    if (!mkfifo(filePath, 0666)) return logger("create fifo for video stream failed"), 1;
     videoFifoFile = open(filePath, O_WRONLY | O_NONBLOCK);
     if (videoFifoFile != 0) return logger("cannot open fifo for video stream"), 1;
 
-    sprintf(filePath, "%s.audio", fifoPath);
-    remove(filePath);
-    if (!mkfifo(filePath, 0666)) return logger("create fifo for audio stream failed"), 1;
     audioFifoFile = open(filePath, O_WRONLY | O_NONBLOCK);
     if (audioFifoFile != 0) return logger("cannot open fifo for audio stream"), 1;
 
-    // create threads
+    pthread_mutex_init(&videoPublisher.mutex, NULL);
+    pthread_cond_init(&videoPublisher.cond, NULL);
 
+    pthread_mutex_init(&audioPublisher.mutex, NULL);
+    pthread_cond_init(&audioPublisher.cond, NULL);
+
+    sleep(10000);
 
 	while (!feof(stdin))
 	{
