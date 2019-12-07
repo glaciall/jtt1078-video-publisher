@@ -13,17 +13,43 @@
 #include <sys/wait.h>
 #include "util/common.h"
 #include "util/linkedlist.c"
+#include "acodec/codec.c"
 
 unsigned char buffer[4096];
 unsigned int buffer_offset = 0;
 unsigned int buffer_size = 0;
 unsigned char *ENCODING[] = {
-	"reserved", "G.721", "G.722", "G.723", "G.728", "G.729",
-	"G.711A", "G.711U", "G.726", "G.729A", "DVI4_3",
-	"DVI4_4", "DVI4_8K", "DVI4_16K", "LPC", "S16BE_STEREO",
-	"S16BE_MONO", "MPEGAUDIO", "LPCM", "AAC", "WMA9STD", "HEAAC",
-	"PCM_VOICE", "PCM_AUDIO", "AACLC", "MP3", "ADPCMA", "MP4AUDIO", "AMR"
+	"reserved",             // 0
+	"G.721",                // 1
+	"G.722",                // 2
+	"G.723",                // 3
+	"G.728",                // 4
+	"G.729",                // 5
+	"G.711A",               // 6
+	"G.711U",               // 7
+	"G.726",                // 8
+	"G.729A",               // 9
+	"DVI4_3",               // 10
+	"DVI4_4",               // 11
+	"DVI4_8K",              // 12
+	"DVI4_16K",             // 13
+	"LPC",                  // 14
+	"S16BE_STEREO",         // 15
+	"S16BE_MONO",           // 16
+	"MPEGAUDIO",            // 17
+	"LPCM",                 // 18
+	"AAC",                  // 19
+	"WMA9STD",              // 20
+	"HEAAC",                // 21
+	"PCM_VOICE",            // 22
+	"PCM_AUDIO",            // 23
+	"AACLC",                // 24
+	"MP3",                  // 25
+	"ADPCMA",               // 26
+	"MP4AUDIO",             // 27
+	"AMR"                   // 28
 };
+int audioCodecId;
 
 struct publisher
 {
@@ -99,6 +125,9 @@ void *audio_publish_func(void *arg)
     int ret;
     struct timespec ts;
     struct node_t *node;
+    char outBuff[1024];
+    int outBuffLen;
+    AUDIO_CODEC *codec;
 
     // sprintf(filePath, "%s.audio", fifoPath);
     printf("open %s.audio\n", fifoPath);
@@ -132,8 +161,20 @@ void *audio_publish_func(void *arg)
         pthread_mutex_unlock(&audioPublisher.mutex);
 
         // RAW -> PCM
+        switch (audioCodecId)
+        {
+            case  6 : codec = g711a_to_pcm; break;
+            case  7 : codec = g711u_to_pcm; break;
+            case  8 : codec = g726_to_pcm; break;
+            case 26 : codec = adpcm_to_pcm; break;
+            default : codec = raw_to_pcm;
+        }
 
-        fwrite(node->data, 1, node->dataLength, audioFifoFile);
+        ret = codec(node->data, node->dataLength, outBuff, &outBuffLen);
+        // TODO: if ret != 0 ....
+
+        fwrite(outBuff, 1, outBuffLen, audioFifoFile);
+        // fwrite(node->data, 1, node->dataLength, audioFifoFile);
         fflush(audioFifoFile);
     }
 
@@ -271,6 +312,7 @@ int main(int argc, char **argv)
 					logger(msg);
 					// bytes_dump(buffer, 64);
 					audioEncodingPrinted = 1;
+					audioCodecId = pt;
 				}
                 distribute(buffer, lOffset + 2, bodyLength, &audioPublisher);
 			}
