@@ -9,3 +9,8 @@ jtt1078
 *.audio
 *.video
 test.sh
+*.adpcm
+*.g711
+*.g726
+*.pcm
+test

@@ -15,13 +15,20 @@ int raw_to_pcm(char *inBuff, int inBuffLen, char *outBuff, int *outBuffLen)
     return 0;
 }
 
-adpcm_state adpcm_state_instance;
+adpcm_state adpcm_state_instance = { valprev : 0, index : 0 };
 int adpcm_to_pcm(char *inBuff, int inBuffLen, char *outBuff, int *outBuffLen)
 {
-    int i = 4;
-    char indata[inBuffLen - 4];
-    for (; i < inBuffLen; i++) indata[i] = inBuff[i];
-    adpcm_coder((short *)indata, outBuff, (inBuffLen - 4) / 2, &adpcm_state_instance);
+    int i = 8, k, l = (inBuffLen - 8);
+    char indata[l];
+    for (k = 0; i < inBuffLen; i++, k++) indata[k] = inBuff[i];
+    // 00 01 02 03 04 05 06 07
+    // -----------|----------|
+    //    海思头   |prev|idx--|
+    // 00 01 52 00 11 22 33 44
+    adpcm_state_instance.valprev = (inBuff[4] << 8) | (inBuff[5]);
+    adpcm_state_instance.index = inBuff[6];
+    adpcm_decoder(indata, (short *)outBuff, l * 2, &adpcm_state_instance);
+    *outBuffLen = l * 4;
     return 0;
 }
 

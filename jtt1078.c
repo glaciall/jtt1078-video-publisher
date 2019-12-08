@@ -56,7 +56,10 @@ struct publisher
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     struct node_t llist;
+    unsigned long long currentIndex;
 } videoPublisher, audioPublisher;
+
+unsigned long long sequence = 0;
 
 FILE *input;
 FILE *videoFifoFile;
@@ -66,6 +69,8 @@ unsigned char fifoPath[128];
 unsigned char filePath[140];
 unsigned char videoEncoding[] = "h264";
 unsigned char rtmpUrl[128];
+unsigned char audioRate[16] = "8000";
+unsigned char audioChannel[4] = "1";
 
 pthread_t video_publish_worker, audio_publish_worker;
 
@@ -115,6 +120,8 @@ void *video_publish_func(void *arg)
 
         fwrite(node->data, 1, node->dataLength, videoFifoFile);
         fflush(videoFifoFile);
+
+        videoPublisher.currentIndex = node->index;
     }
     return NULL;
 }
@@ -182,12 +189,12 @@ void *audio_publish_func(void *arg)
 }
 
 // distribute audio/video segment to separate threads
-void distribute(char *data, int start, int len, struct publisher *publisher)
+void distribute(char *data, int start, int len, unsigned long long vSequence, struct publisher *publisher)
 {
     char *temp = (char *)malloc(len);
     array_copy(data, start, temp, 0, len);
     pthread_mutex_lock(&publisher->mutex);
-    node_add_last(&publisher->llist, temp, len);
+    node_add_last(&publisher->llist, temp, len, vSequence);
     pthread_mutex_unlock(&publisher->mutex);
     pthread_cond_signal(&publisher->cond);
     free(temp);
@@ -214,10 +221,10 @@ int main(int argc, char **argv)
 
     // signal(SIGINT, terminate);
 
-    // if (get_opt(argc, argv, "--fifo-path=", fifoPath, 127) == 0) return exit_no_arg("no argument for fifo path"), 1;
-    // if (get_opt(argc, argv, "--rtmp-url=", rtmpUrl, 127) == 0) return exit_no_arg("no argument for rtmp url"), 1;
-    strcpy(fifoPath, "xxoo");
-    strcpy(rtmpUrl, "rtmp://localhost/live/fuck");
+    if (get_opt(argc, argv, "--fifo-path=", fifoPath, 127) == 0) return exit_no_arg("no argument for fifo path"), 1;
+    if (get_opt(argc, argv, "--rtmp-url=", rtmpUrl, 127) == 0) return exit_no_arg("no argument for rtmp url"), 1;
+    // get_opt(argc, argv, "--audio-rate=", audioRate);
+    // get_opt(argc, argv, "--audio-channel=", audioRate);
 
     sprintf(filePath, "%s.video", fifoPath);
     remove(filePath);
@@ -227,7 +234,9 @@ int main(int argc, char **argv)
     remove(filePath);
     if (mkfifo(filePath, 0666) != 0) return logger("create fifo for audio stream failed"), 1;
 
-    sprintf(command, "ffmpeg -re -f %s -i %s.video -f alaw -ar 8000 -ac 1 -i %s.audio -vcodec copy -acodec aac -f flv %s", videoEncoding, fifoPath, fifoPath, rtmpUrl);
+    sprintf(command, "ffmpeg -re -f %s -i %s.video -f s16le -ar %s -ac %s -i %s.audio -vcodec copy -acodec aac -f flv %s",
+                            videoEncoding, fifoPath, audioRate, audioChannel, fifoPath, rtmpUrl
+    );
 	input = popen(command, "w");
 	if (input == NULL)
 	{
@@ -236,9 +245,11 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+    videoPublisher.currentIndex = 0;
     pthread_mutex_init(&videoPublisher.mutex, NULL);
     pthread_cond_init(&videoPublisher.cond, NULL);
 
+    audioPublisher.currentIndex = 0;
     pthread_mutex_init(&audioPublisher.mutex, NULL);
     pthread_cond_init(&audioPublisher.cond, NULL);
 
@@ -249,7 +260,6 @@ int main(int argc, char **argv)
 
 	while (!feof(stdin))
 	{
-		// store to buffer
 		len = fread(block, 1, sizeof(block), stdin);
 		for (i = 0; i < len; i++)
 		{
@@ -258,18 +268,12 @@ int main(int argc, char **argv)
 		buffer_size += len;
 		buffer_offset += len;
 
-		// slice from buffer
-		// first 4 bytes
-		// determine length offset by type
-
 		while (1)
 		{
 			if (buffer_size < 30) break;
 			if (buffer[0] == 0x30 && buffer[1] == 0x31 && buffer[2] == 0x63 && buffer[3] == 0x64) ;
 			else
 			{
-				// bytes_dump(buffer, 64);
-				// logger("invalid header bytes");
 				return 1;
 			}
 
@@ -279,9 +283,6 @@ int main(int argc, char **argv)
 			else if (dType == 0x03) lOffset = 28 - 4;
 			bodyLength = ((buffer[lOffset] << 8) | (buffer[lOffset + 1])) & 0xffff;
 			pLen = bodyLength + lOffset + 2;
-		
-			// sprintf(msg, "Type: %02x, Length: %04x, pLen: %d, Buffer: %d", dType, bodyLength, pLen, buffer_size);
-			// logger(msg);
 
 			if (buffer_size < pLen) break;
 			pt = buffer[5] & 0x7f;
@@ -301,7 +302,7 @@ int main(int argc, char **argv)
 					logger(msg);
 					videoEncodingPrinted = 1;
 				}
-				distribute(buffer, lOffset + 2, bodyLength, &videoPublisher);
+				distribute(buffer, lOffset + 2, bodyLength, sequence++, &videoPublisher);
 			}
 			else if (dType == 0x03)
 			{
@@ -310,11 +311,10 @@ int main(int argc, char **argv)
 					if (pt > 28) strcpy(msg, "audio encoding: unknown");
 					else sprintf(msg, "audio encoding: %s", *(ENCODING + pt));
 					logger(msg);
-					// bytes_dump(buffer, 64);
 					audioEncodingPrinted = 1;
 					audioCodecId = pt;
 				}
-                distribute(buffer, lOffset + 2, bodyLength, &audioPublisher);
+                distribute(buffer, lOffset + 2, bodyLength, sequence, &audioPublisher);
 			}
 
 			for (i = 0, len = buffer_size - pLen; i < len; i++)

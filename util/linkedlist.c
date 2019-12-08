@@ -6,6 +6,7 @@ struct node_t
 {
     char data[1024];
     int dataLength;
+    unsigned long long index;
     int count;
     struct node_t *next;
     struct node_t *last;
@@ -23,13 +24,14 @@ int node_remove_first(struct node_t *head, struct node_t **node)
     return 0;
 }
 
-int node_add_last(struct node_t *head, char *val, int dataLength)
+int node_add_last(struct node_t *head, char *val, int dataLength, unsigned long long seq)
 {
     struct node_t *node = (struct node_t *)malloc(sizeof(struct node_t));
     memset(node->data, 0, 1024);
     int i = 0;
     for (; i < dataLength; i++) node->data[i] = *(val++);
     node->dataLength = dataLength;
+    node->index = seq;
     node->next = NULL;
 
     if (head->last != NULL) head->last->next = node;

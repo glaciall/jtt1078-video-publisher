@@ -169,7 +169,11 @@ void adpcm_coder(short *indata, char *outdata, int len, adpcm_state *state)
     state->index = index;
 }
 
-
+// ADPCM->PCM，解码
+// indata：数据源
+// outdata：输出数据
+// len：indata的长度*2
+// 最终输出的数据长度为：indata的长度*4
 void adpcm_decoder(char *indata, short *outdata, int len, adpcm_state *state)
 {
 	signed char *inp;		/* Input buffer pointer */
