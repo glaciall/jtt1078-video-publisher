@@ -1,21 +1,25 @@
 ## jtt1078-video-publisher
 通过进程的**stdin**读取符合JT/T 1078协议的RTP消息包，完成分包处理、拆分音视频，并且通过**ffmpeg**完成编码推流到RTMP服务器去。
 
+### 特性
+1. 支持h.264编码的视频
+2. 支持锐明ADPCMA编码（含海思）的音频
+3. 支持G.711A、G.711U、G.726编码的音频
+
+### 使用方式
+1. 自行建立TCP监听
+2. 当有新连接建立时，读取RTP消息包的SIM卡号和通道号，确定RTMP地址，使用此应用程序创建子进程
+3. 向子进程的stdin不断的写入数据，不需要区分音频或视频，不需要分包拆包。
+
+> 因为还需要各位提供一下RTMP地址（因为我自己的项目里使用的RTMP地址是UUID生成的），所以还是需要各位简单的解析一下RTP消息包，对于终端发上来的RTP消息包，可以完全不用做粘包处理，只要在连接建立后，通过第8~第14个字节，确定SIM卡号和通道号即可，后续收到的所有数据通统直接交给子进程的stdin就可以了。
+
 ### 参数说明
 1. fifo文件名：`--fifo-name=`
-2. 视频编码：`--video-encoding=`
-3. 音频编码：`--audio-encoding=`
-4. 音频采样率：`--audio-rate=`
-5. 音频通道数：`--audio-channel=`
-6. rtmp地址：`--rtmp-url=`
+2. rtmp地址：`--rtmp-url=`
 
 举个例子：
 ```bash
 jtt1078 --fifo-name=111222 \
-        --video-encoding=h264 \
-        --audio-encoding=alaw \
-        --audio-rate=8000 \
-        --audio-channel=1 \
         --rtmp-url=rtmp://localhost/live/fuck
 ```
 
