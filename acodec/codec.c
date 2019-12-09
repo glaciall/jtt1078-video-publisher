@@ -32,10 +32,9 @@ int adpcm_to_pcm(char *inBuff, int inBuffLen, char *outBuff, int *outBuffLen)
     return 0;
 }
 
+// TODO: 以下三类都需要测试验证
 int g711a_to_pcm(char *inBuff, int inBuffLen, char *outBuff, int *outBuffLen)
 {
-    g711a_decode((short *)outBuff, inBuff, inBuffLen);
-    *outBuffLen = inBuffLen * 2;
     return 0;
 }
 

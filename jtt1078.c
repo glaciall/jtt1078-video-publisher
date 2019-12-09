@@ -64,6 +64,9 @@ unsigned long long sequence = 0;
 FILE *input;
 FILE *videoFifoFile;
 FILE *audioFifoFile;
+FILE *logFile;
+
+pid_t pid, cpid;
 
 unsigned char fifoPath[128];
 unsigned char filePath[140];
@@ -88,7 +91,7 @@ void *video_publish_func(void *arg)
     struct timespec ts;
     struct node_t *node;
 
-    printf("open %s.video\n", fifoPath);
+    // printf("open %s.video\n", fifoPath);
     char filePath[128];
     sprintf(filePath, "%s.video", fifoPath);
     videoFifoFile = fopen(filePath, "a+");
@@ -118,10 +121,9 @@ void *video_publish_func(void *arg)
         node_remove_first(&videoPublisher.llist, &node);
         pthread_mutex_unlock(&videoPublisher.mutex);
 
+        logger("ready to write...");
         fwrite(node->data, 1, node->dataLength, videoFifoFile);
         fflush(videoFifoFile);
-
-        videoPublisher.currentIndex = node->index;
     }
     return NULL;
 }
@@ -137,7 +139,7 @@ void *audio_publish_func(void *arg)
     AUDIO_CODEC *codec;
 
     // sprintf(filePath, "%s.audio", fifoPath);
-    printf("open %s.audio\n", fifoPath);
+    // printf("open %s.audio\n", fifoPath);
     char filePath[128];
     sprintf(filePath, "%s.audio", fifoPath);
     audioFifoFile = fopen(filePath, "a+");
@@ -181,7 +183,6 @@ void *audio_publish_func(void *arg)
         // TODO: if ret != 0 ....
 
         fwrite(outBuff, 1, outBuffLen, audioFifoFile);
-        // fwrite(node->data, 1, node->dataLength, audioFifoFile);
         fflush(audioFifoFile);
     }
 
@@ -203,133 +204,135 @@ void distribute(char *data, int start, int len, unsigned long long vSequence, st
 void terminate(int signal)
 {
     logger("Ctrl + Break terminate signal...");
-    pclose(input);
+    kill(cpid, SIGINT);
     exit(0);
 }
 
 int main(int argc, char **argv)
 {
+    int status;
 	int audioEncodingPrinted = 0;
 	int videoEncodingPrinted = 0;
 	unsigned int i, len, lOffset, dType, pLen, bodyLength, pt;
 	unsigned char block[1024];
 	unsigned char msg[128];
 	unsigned char command[512];
+	unsigned char videoFilePath[128];
+	unsigned char audioFilePath[128];
 
     memset(fifoPath, 0, 128);
     memset(rtmpUrl, 0, 128);
 
-    // signal(SIGINT, terminate);
-
     if (get_opt(argc, argv, "--fifo-path=", fifoPath, 127) == 0) return exit_no_arg("no argument for fifo path"), 1;
     if (get_opt(argc, argv, "--rtmp-url=", rtmpUrl, 127) == 0) return exit_no_arg("no argument for rtmp url"), 1;
-    // get_opt(argc, argv, "--audio-rate=", audioRate);
-    // get_opt(argc, argv, "--audio-channel=", audioRate);
+    get_opt(argc, argv, "--audio-rate=", audioRate, 15);
+    get_opt(argc, argv, "--audio-channel=", audioChannel, 3);
 
-    sprintf(filePath, "%s.video", fifoPath);
-    remove(filePath);
-    if (mkfifo(filePath, 0666) != 0) return logger("create fifo for video stream failed"), 1;
+    sprintf(videoFilePath, "%s.video", fifoPath);
+    sprintf(audioFilePath, "%s.audio", fifoPath);
 
-    sprintf(filePath, "%s.audio", fifoPath);
-    remove(filePath);
-    if (mkfifo(filePath, 0666) != 0) return logger("create fifo for audio stream failed"), 1;
+    // (cpid = fork()) == 0
+    if ((cpid = fork()) == 0)
+    {
+        execl("/usr/local/bin/ffmpeg", "ffmpeg", "-i", videoFilePath, "-f", "s16le", "-ar", "8000", "-ac", "1", "-i", audioFilePath, "-vcodec", "copy", "-acodec", "aac", "-f", "flv", rtmpUrl, NULL);
+    }
+    else
+    {
+        remove(videoFilePath);
+        remove(audioFilePath);
+        if (mkfifo(videoFilePath, 0666) != 0) return logger("create fifo for video stream failed"), 1;
+        if (mkfifo(audioFilePath, 0666) != 0) return logger("create fifo for audio stream failed"), 1;
 
-    sprintf(command, "ffmpeg -re -f %s -i %s.video -f s16le -ar %s -ac %s -i %s.audio -vcodec copy -acodec aac -f flv %s",
-                            videoEncoding, fifoPath, audioRate, audioChannel, fifoPath, rtmpUrl
-    );
-	input = popen(command, "w");
-	if (input == NULL)
-	{
-		sprintf(msg, "exec ffmpeg failed: %s", strerror(errno));
-		logger(msg);
-		return 1;
-	}
+        sleep(1);
+        pid = getpid();
+        signal(SIGINT, terminate);
 
-    videoPublisher.currentIndex = 0;
-    pthread_mutex_init(&videoPublisher.mutex, NULL);
-    pthread_cond_init(&videoPublisher.cond, NULL);
+        // sprintf(msg, "log-%ld.log", pid);
+        // logFile = fopen(msg, "a+");
 
-    audioPublisher.currentIndex = 0;
-    pthread_mutex_init(&audioPublisher.mutex, NULL);
-    pthread_cond_init(&audioPublisher.cond, NULL);
+        pthread_mutex_init(&videoPublisher.mutex, NULL);
+        pthread_cond_init(&videoPublisher.cond, NULL);
 
-    pthread_create(&video_publish_worker, NULL, video_publish_func, NULL);
-    pthread_create(&audio_publish_worker, NULL, audio_publish_func, NULL);
+        pthread_mutex_init(&audioPublisher.mutex, NULL);
+        pthread_cond_init(&audioPublisher.cond, NULL);
 
-    logger("threads created...");
+        pthread_create(&video_publish_worker, NULL, video_publish_func, NULL);
+        pthread_create(&audio_publish_worker, NULL, audio_publish_func, NULL);
 
-	while (!feof(stdin))
-	{
-		len = fread(block, 1, sizeof(block), stdin);
-		for (i = 0; i < len; i++)
-		{
-			buffer[i + buffer_offset] = block[i];
-		}
-		buffer_size += len;
-		buffer_offset += len;
+        logger("threads created...");
 
-		while (1)
-		{
-			if (buffer_size < 30) break;
-			if (buffer[0] == 0x30 && buffer[1] == 0x31 && buffer[2] == 0x63 && buffer[3] == 0x64) ;
-			else
-			{
-				return 1;
-			}
+        while (!feof(stdin))
+        {
+            len = fread(block, 1, sizeof(block), stdin);
+            for (i = 0; i < len; i++)
+            {
+                buffer[i + buffer_offset] = block[i];
+            }
+            buffer_size += len;
+            buffer_offset += len;
 
-			lOffset = 28;
-			dType = (buffer[15] >> 4) & 0x0f;
-			if (dType == 0x04) lOffset = 28 - 8 - 2 - 2;
-			else if (dType == 0x03) lOffset = 28 - 4;
-			bodyLength = ((buffer[lOffset] << 8) | (buffer[lOffset + 1])) & 0xffff;
-			pLen = bodyLength + lOffset + 2;
+            while (1)
+            {
+                if (buffer_size < 30) break;
+                if (buffer[0] == 0x30 && buffer[1] == 0x31 && buffer[2] == 0x63 && buffer[3] == 0x64) ;
+                else
+                {
+                    return 1;
+                }
 
-			if (buffer_size < pLen) break;
-			pt = buffer[5] & 0x7f;
+                lOffset = 28;
+                dType = (buffer[15] >> 4) & 0x0f;
+                if (dType == 0x04) lOffset = 28 - 8 - 2 - 2;
+                else if (dType == 0x03) lOffset = 28 - 4;
+                bodyLength = ((buffer[lOffset] << 8) | (buffer[lOffset + 1])) & 0xffff;
+                pLen = bodyLength + lOffset + 2;
 
-			if (dType == 0x00 || dType == 0x01 || dType == 0x02)
-			{
-				if (videoEncodingPrinted == 0)
-				{
-					switch (pt)
-					{
-						case 98 : strcpy(msg, "vidio encoding: H.264"); break;
-						case 99 : strcpy(msg, "video encoding: H.265"); break;
-						case 100 : strcpy(msg, "video encoding: AVS"); break;
-						case 101 : strcpy(msg, "video encoding: SVAC"); break;
-						default : strcpy(msg, "video encoding: unknown");
-					}
-					logger(msg);
-					videoEncodingPrinted = 1;
-				}
-				distribute(buffer, lOffset + 2, bodyLength, sequence++, &videoPublisher);
-			}
-			else if (dType == 0x03)
-			{
-				if (audioEncodingPrinted == 0)
-				{
-					if (pt > 28) strcpy(msg, "audio encoding: unknown");
-					else sprintf(msg, "audio encoding: %s", *(ENCODING + pt));
-					logger(msg);
-					audioEncodingPrinted = 1;
-					audioCodecId = pt;
-				}
-                distribute(buffer, lOffset + 2, bodyLength, sequence, &audioPublisher);
-			}
+                if (buffer_size < pLen) break;
+                pt = buffer[5] & 0x7f;
 
-			for (i = 0, len = buffer_size - pLen; i < len; i++)
-			{
-				buffer[i] = buffer[pLen + i];
-			}
-		
-			buffer_size -= pLen;
-			buffer_offset -= pLen;
-		}
-	}
+                if (dType == 0x00 || dType == 0x01 || dType == 0x02)
+                {
+                    if (videoEncodingPrinted == 0)
+                    {
+                        switch (pt)
+                        {
+                            case 98 : strcpy(msg, "vidio encoding: H.264"); break;
+                            case 99 : strcpy(msg, "video encoding: H.265"); break;
+                            case 100 : strcpy(msg, "video encoding: AVS"); break;
+                            case 101 : strcpy(msg, "video encoding: SVAC"); break;
+                            default : strcpy(msg, "video encoding: unknown");
+                        }
+                        logger(msg);
+                        videoEncodingPrinted = 1;
+                    }
+                    distribute(buffer, lOffset + 2, bodyLength, sequence++, &videoPublisher);
+                }
+                else if (dType == 0x03)
+                {
+                    if (audioEncodingPrinted == 0)
+                    {
+                        if (pt > 28) strcpy(msg, "audio encoding: unknown");
+                        else sprintf(msg, "audio encoding: %s", *(ENCODING + pt));
+                        logger(msg);
+                        audioEncodingPrinted = 1;
+                        audioCodecId = pt;
+                    }
+                    distribute(buffer, lOffset + 2, bodyLength, sequence, &audioPublisher);
+                }
 
-	pclose(input);
-	fflush(stdout);
-	fclose(stdout);
+                for (i = 0, len = buffer_size - pLen; i < len; i++)
+                {
+                    buffer[i] = buffer[pLen + i];
+                }
+
+                buffer_size -= pLen;
+                buffer_offset -= pLen;
+            }
+        }
+
+        wait(&status);
+        // fclose(logFile);
+    }
 
 	return 0;
 }

@@ -13,4 +13,5 @@ test.sh
 *.g711
 *.g726
 *.pcm
+*.log
 test
