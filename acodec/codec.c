@@ -25,7 +25,7 @@ int adpcm_to_pcm(char *inBuff, int inBuffLen, char *outBuff, int *outBuffLen)
     // -----------|----------|
     //    海思头   |prev|idx--|
     // 00 01 52 00 11 22 33 44
-    adpcm_state_instance.valprev = (inBuff[4] << 8) | (inBuff[5]);
+    adpcm_state_instance.valprev = (inBuff[5] << 8) | (inBuff[4]);
     adpcm_state_instance.index = inBuff[6];
     adpcm_decoder(indata, (short *)outBuff, l * 2, &adpcm_state_instance);
     *outBuffLen = l * 4;
