@@ -1,7 +1,20 @@
 #include <stdio.h>
 #include <faac.h>
 
-char * pcm_to_aac(unsigned char *inputBuffer, int inputBufferLength,int sample_rate, int channels, int sample_bit, char *output)
+/**
+ * encode PCM to AAC LC
+ *
+ * unsigned char *inputBuffer : input PCM data pointer
+ * int inputBufferLength : PCM data bytes in inputBuffer
+ * int sample_rate : PCM audio rate, eg. 8000
+ * int channels : input audio channel count
+ * sample_bit : input audio bit depth
+ * char *output : the AAC data write to
+ *
+ * return: int, the encoded AAC byte count
+ *
+ */
+int pcm_to_aac(unsigned char *inputBuffer, int inputBufferLength, int sample_rate, int channels, int sample_bit, char *output)
 {
 	unsigned long inputSamples = 0;
 	unsigned long maxOutputBytes = 0;
