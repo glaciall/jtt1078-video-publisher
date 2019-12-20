@@ -121,7 +121,7 @@ void *video_publish_func(void *arg)
         node_remove_first(&videoPublisher.llist, &node);
         pthread_mutex_unlock(&videoPublisher.mutex);
 
-        logger("ready to write...");
+        // logger("ready to write...");
         fwrite(node->data, 1, node->dataLength, videoFifoFile);
         fflush(videoFifoFile);
     }
@@ -234,7 +234,7 @@ int main(int argc, char **argv)
     // (cpid = fork()) == 0
     if ((cpid = fork()) == 0)
     {
-        execl("/usr/local/bin/ffmpeg", "ffmpeg", "-i", videoFilePath, "-f", "s16le", "-ar", "8000", "-ac", "1", "-i", audioFilePath, "-vcodec", "copy", "-acodec", "aac", "-f", "flv", rtmpUrl, NULL);
+        execl("/usr/local/bin/ffmpeg", "ffmpeg", "-re", "-r", "25", "-f", "h264", "-i", videoFilePath, "-f", "s16le", "-ar", "8000", "-ac", "1", "-i", audioFilePath, "-vcodec", "copy", "-acodec", "aac", "-probesize", "512", "-f", "flv", rtmpUrl, NULL);
     }
     else
     {
@@ -245,7 +245,7 @@ int main(int argc, char **argv)
 
         sleep(1);
         pid = getpid();
-        signal(SIGINT, terminate);
+        // signal(SIGINT, terminate);
 
         // sprintf(msg, "log-%ld.log", pid);
         // logFile = fopen(msg, "a+");
